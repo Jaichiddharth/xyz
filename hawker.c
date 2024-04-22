@@ -66,7 +66,7 @@ static void setup_resource_controls(pid_t pid, int cpu_pct, long mem_limit) {
     char path[256];
     
     // Setting CPU shares
-    snprintf(path, sizeof(path), "/sys/fs/cgroup/cpu/hawker/%d/cpu.shares", pid);
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/cpu,cpuacct/hawker/%d/cpu.shares", pid);
     FILE *cpu_file = fopen(path, "w");
     if (cpu_file) {
         fprintf(cpu_file, "%d", cpu_pct * 1024 / 100);  // Convert percentage to shares
@@ -361,7 +361,7 @@ child_exec (void * arg)
 
     // Change root to the new directory for the image
     char img_path[PATH_MAX];
-    snprintf(img_path, sizeof(img_path), "/.hawker/images/%s", p->img);
+    snprintf(img_path, sizeof(img_path), "/var/lib/hawker/images/%s", p->img);
     if (chroot(img_path) != 0 || chdir("/") != 0) {
         ERRSTR("Failed to change root to %s", img_path);
         exit(EXIT_FAILURE);
