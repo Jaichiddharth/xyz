@@ -62,11 +62,19 @@ static void setup_pid_namespace(pid_t pid) {
 }
 
 static void setup_resource_controls(pid_t pid, int cpu_pct, long mem_limit) {
-    // Example: set CPU shares and memory limit for the process
     char path[256];
-    
+
+    // Check and possibly create the base directory for cpu shares
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/cpu,cpuacct/hawker/");
+    if (access(path, F_OK) != 0) {
+        if (mkdir(path, 0755) != 0) {
+            perror("Failed to create CPU cgroup directory");
+            exit(EXIT_FAILURE);
+        }
+    }
+
     // Setting CPU shares
-    snprintf(path, sizeof(path), "/sys/fs/cgroup/cpu,cpuacct/hawker/%d/cpu.shares", pid);
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/cpu,cpuacct/hawker/cpu.shares");
     FILE *cpu_file = fopen(path, "w");
     if (cpu_file) {
         fprintf(cpu_file, "%d", cpu_pct * 1024 / 100);  // Convert percentage to shares
@@ -76,8 +84,17 @@ static void setup_resource_controls(pid_t pid, int cpu_pct, long mem_limit) {
         exit(EXIT_FAILURE);
     }
 
+    // Check and possibly create the base directory for memory limit
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/hawker/");
+    if (access(path, F_OK) != 0) {
+        if (mkdir(path, 0755) != 0) {
+            perror("Failed to create memory cgroup directory");
+            exit(EXIT_FAILURE);
+        }
+    }
+
     // Setting memory limit
-    snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/hawker/%d/memory.limit_in_bytes", pid);
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/hawker/memory.limit_in_bytes");
     FILE *mem_file = fopen(path, "w");
     if (mem_file) {
         fprintf(mem_file, "%ld", mem_limit);
@@ -87,6 +104,7 @@ static void setup_resource_controls(pid_t pid, int cpu_pct, long mem_limit) {
         exit(EXIT_FAILURE);
     }
 }
+
 
 static int
 check_or_create_file (char * path, mode_t mode)
