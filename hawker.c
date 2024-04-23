@@ -376,7 +376,8 @@ static int child_exec(void *arg) {
 
     // Change root to the mounted image directory
     char img_path[PATH_MAX];
-    snprintf(img_path, sizeof(img_path), "/var/lib/hawker/images/%s", p->img);
+    //snprintf(img_path, sizeof(img_path), "/var/lib/hawker/images/%s", p->img);
+    snprintf(img_path, sizeof(img_path), "/var/lib/hawker/images/test/busybox-1.36.1");
     if (chroot(img_path) != 0 || chdir("/") != 0) {
         fprintf(stderr, "Failed to change root to %s: %s\n", img_path, strerror(errno));
         exit(EXIT_FAILURE);
