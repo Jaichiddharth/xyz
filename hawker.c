@@ -62,19 +62,11 @@ static void setup_pid_namespace(pid_t pid) {
 }
 
 static void setup_resource_controls(pid_t pid, int cpu_pct, long mem_limit) {
+    // Example: set CPU shares and memory limit for the process
     char path[256];
-
-    // Check and possibly create the base directory for cpu shares
-    snprintf(path, sizeof(path), "/sys/fs/cgroup/cpu,cpuacct/hawker/");
-    if (access(path, F_OK) != 0) {
-        if (mkdir(path, 0755) != 0) {
-            perror("Failed to create CPU cgroup directory");
-            exit(EXIT_FAILURE);
-        }
-    }
-
+    
     // Setting CPU shares
-    snprintf(path, sizeof(path), "/sys/fs/cgroup/cpu,cpuacct/hawker/cpu.shares");
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/cpu,cpuacct/hawker/%d/cpu.shares", pid);
     FILE *cpu_file = fopen(path, "w");
     if (cpu_file) {
         fprintf(cpu_file, "%d", cpu_pct * 1024 / 100);  // Convert percentage to shares
@@ -84,17 +76,8 @@ static void setup_resource_controls(pid_t pid, int cpu_pct, long mem_limit) {
         exit(EXIT_FAILURE);
     }
 
-    // Check and possibly create the base directory for memory limit
-    snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/hawker/");
-    if (access(path, F_OK) != 0) {
-        if (mkdir(path, 0755) != 0) {
-            perror("Failed to create memory cgroup directory");
-            exit(EXIT_FAILURE);
-        }
-    }
-
     // Setting memory limit
-    snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/hawker/memory.limit_in_bytes");
+    snprintf(path, sizeof(path), "/sys/fs/cgroup/memory/hawker/%d/memory.limit_in_bytes", pid);
     FILE *mem_file = fopen(path, "w");
     if (mem_file) {
         fprintf(mem_file, "%ld", mem_limit);
@@ -104,7 +87,6 @@ static void setup_resource_controls(pid_t pid, int cpu_pct, long mem_limit) {
         exit(EXIT_FAILURE);
     }
 }
-
 
 static int
 check_or_create_file (char * path, mode_t mode)
@@ -356,59 +338,58 @@ pty_setup ()
  * specified (using execvpe()), it will be in a fully isolated container
  * environment.
  */
-static int child_exec(void *arg) {
-    struct parms *p = (struct parms *)arg;
-    char **envp;
+static int 
+child_exec (void * arg)
+{
+    struct parms *p           = (struct parms*)arg;
+    const char * new_hostname = DEFAULT_HOSTNAME;
+    char c;
+    char ** envp;
 
-    // This sets the death signal to SIGKILL to ensure the child exits if the parent does.
+    // If our parent dies and doesn't kill us explicitly, we should also die
     prctl(PR_SET_PDEATHSIG, SIGKILL);
 
-    // Close the write end of pipe, we are the child
-    close(p->pipefd[1]);
+    close(p->pipefd[1]); // Close write end of our pipe
 
-    // Wait for parent to signal us to proceed by closing its end of the pipe
-    char c;
+    // Wait for the parent to hang up its write end of the pipe
     if (read(p->pipefd[0], &c, 1) != 0) {
-        fprintf(stderr, "Error: Parent sync failed\n");
+        ERRSTR("read from pipe in child returned nonzero status");
         exit(EXIT_FAILURE);
     }
-    close(p->pipefd[0]);  // Done with the pipe
 
-    // Change root to the mounted image directory
+    close(p->pipefd[0]); // Close read end of the pipe, we're done with it
+
+    // Change root to the new directory for the image
     char img_path[PATH_MAX];
-    //snprintf(img_path, sizeof(img_path), "/var/lib/hawker/images/%s", p->img);
-    snprintf(img_path, sizeof(img_path), "/var/lib/hawker/images/test/busybox-1.36.1");
+    snprintf(img_path, sizeof(img_path), "/var/lib/hawker/images/%s", p->img);
     if (chroot(img_path) != 0 || chdir("/") != 0) {
-        fprintf(stderr, "Failed to change root to %s: %s\n", img_path, strerror(errno));
+        ERRSTR("Failed to change root to %s", img_path);
         exit(EXIT_FAILURE);
     }
 
-    // Setting the hostname to a default value
-    if (sethostname(DEFAULT_HOSTNAME, strlen(DEFAULT_HOSTNAME)) != 0) {
-        fprintf(stderr, "Failed to set hostname: %s\n", strerror(errno));
+    // Change our hostname to the specified default
+    if (sethostname(new_hostname, strlen(new_hostname)) != 0) {
+        ERRSTR("Failed to set hostname to %s", new_hostname);
         exit(EXIT_FAILURE);
     }
 
-    // Environment setup for execution
-    envp = setup_env();  // Assume setup_env() correctly sets up the environment
-    if (!envp) {
-        fprintf(stderr, "Failed to setup environment\n");
-        exit(EXIT_FAILURE);
-    }
+    // Setup environment variables
+    envp = setup_env(); // Assumes setup_env() returns a properly allocated and populated env array
 
-    // Execute the command
+    // Execute the command that the user gave us
     if (execvpe(p->cmd, p->argv, envp) == -1) {
-        fprintf(stderr, "Failed to execute '%s': %s\n", p->cmd, strerror(errno));
+        ERRSTR("Failed to execute %s", p->cmd);
         exit(EXIT_FAILURE);
     }
 
-    // Cleanup if exec doesn't exit
+    // Cleanup, though this code should never be reached because execvpe does not return on success
     for (int i = 0; envp[i] != NULL; i++) {
         free(envp[i]);
     }
     free(envp);
 
-    exit(EXIT_FAILURE);  // Should never reach here
+    // Should never reach here
+    exit(EXIT_FAILURE);
 }
 
 static int 
